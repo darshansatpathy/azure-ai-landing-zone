@@ -1,0 +1,16 @@
+# Copy to bootstrap.tfvars and fill in. Run once per subscription with a privileged identity.
+subscription_id            = "00000000-0000-0000-0000-000000000000"
+location                   = "swedencentral"
+state_storage_account_name = "stzzaizstate001"
+allowed_ip_ranges          = []
+
+state_writer_principal_ids = {
+  ci = "00000000-0000-0000-0000-000000000000"
+}
+
+tags = {
+  environment         = "shared"
+  owner               = "platform-ai"
+  cost-center         = "CC-0000"
+  data-classification = "internal"
+}

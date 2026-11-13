@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lint, types, tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Ruff lint
+        run: ruff check .
+      - name: Ruff format
+        run: ruff format --check .
+      - name: Mypy (strict)
+        run: mypy
+      - name: Tests with coverage
+        run: pytest --cov=tfpolicy --cov-report=term-missing --cov-fail-under=85
+      - name: Generated rules reference is current
+        run: tfpolicy rules --format markdown | diff - docs/policies.md
+
+  policy:
+    name: Policy as code
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -e .
+      - name: Check Terraform against the rules
+        run: tfpolicy check --format sarif --output tfpolicy.sarif
+      - name: Formatting check
+        run: tfpolicy fmt-check terraform
+      - name: Publish findings and exceptions
+        if: always()
+        run: tfpolicy check --format markdown >> "$GITHUB_STEP_SUMMARY" || true
+      - name: Upload SARIF to code scanning
+        if: always() && github.event_name == 'push'
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: tfpolicy.sarif
+          category: tfpolicy
+
+  terraform:
+    name: Terraform fmt and validate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff terraform
+      - name: terraform init and validate (every module and root)
+        run: |
+          set -euo pipefail
+          for dir in terraform/modules/* terraform/envs/dev terraform/envs/prod terraform/bootstrap; do
+            echo "::group::validate $dir"
+            terraform -chdir="$dir" init -backend=false -input=false -no-color
+            terraform -chdir="$dir" validate -no-color
+            echo "::endgroup::"
+          done
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -e . pip-audit
+      - name: pip-audit
+        run: pip-audit --skip-editable

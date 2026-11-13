@@ -1,0 +1,8 @@
+[tfpolicy]
+paths = ["terraform"]
+required_tags = ["environment", "owner", "cost-center", "data-classification"]
+fail_on = "low"
+
+# Rules may be disabled here only with a written reason, which shows up in every report.
+# [tfpolicy.disabled]
+# TFP022 = "reason"

@@ -1,0 +1,118 @@
+name: Deploy
+
+# Manual by design. Applying infrastructure is a decision, not a side effect of a merge.
+# Authenticates to Azure with workload identity federation (OIDC); no secret is stored.
+# The GitHub environment (dev, prod) should require reviewers before the apply job runs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to deploy
+        type: choice
+        options: [dev, prod]
+        required: true
+      apply:
+        description: Apply the plan (otherwise plan only)
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  ARM_USE_OIDC: "true"
+  ARM_USE_AZUREAD: "true"
+  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  TF_VAR_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  gate:
+    name: Policy gate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - run: tfpolicy check
+      - run: tfpolicy fmt-check terraform
+
+  plan:
+    name: Plan ${{ inputs.environment }}
+    needs: gate
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.environment }}-plan
+    defaults:
+      run:
+        working-directory: terraform/envs/${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Init
+        run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=${{ vars.TFSTATE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ vars.TFSTATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ vars.TFSTATE_CONTAINER }}" \
+            -backend-config="key=${{ inputs.environment }}.tfstate"
+      - name: Plan
+        run: terraform plan -input=false -var-file=${{ inputs.environment }}.tfvars -out=plan.tfplan
+      - name: Plan summary
+        run: terraform show -no-color plan.tfplan >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plan-${{ inputs.environment }}
+          path: terraform/envs/${{ inputs.environment }}/plan.tfplan
+          retention-days: 7
+
+  apply:
+    name: Apply ${{ inputs.environment }}
+    if: ${{ inputs.apply }}
+    needs: plan
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.environment }}
+    defaults:
+      run:
+        working-directory: terraform/envs/${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: plan-${{ inputs.environment }}
+          path: terraform/envs/${{ inputs.environment }}
+      - name: Init
+        run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=${{ vars.TFSTATE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ vars.TFSTATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ vars.TFSTATE_CONTAINER }}" \
+            -backend-config="key=${{ inputs.environment }}.tfstate"
+      - name: Apply the reviewed plan
+        run: terraform apply -input=false plan.tfplan
