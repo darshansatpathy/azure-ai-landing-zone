@@ -112,6 +112,7 @@ I would rather say this plainly than leave it to be discovered.
 - **Out of scope:** hub networking, firewall, multi-region traffic management, and prompt-level
   safety. The last is handled one layer up, by
   [agent-guardrails-gateway](https://github.com/darshansatpathy/agent-guardrails-gateway).
+- Written and tested by an AI assistant (Claude) working with the repository owner; the design has not had an independent review.
 
 ## Repository layout
 
