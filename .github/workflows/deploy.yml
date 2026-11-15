@@ -77,7 +77,7 @@ jobs:
         run: terraform plan -input=false -var-file=${{ inputs.environment }}.tfvars -out=plan.tfplan
       - name: Plan summary
         run: terraform show -no-color plan.tfplan >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: plan-${{ inputs.environment }}
           path: terraform/envs/${{ inputs.environment }}/plan.tfplan
