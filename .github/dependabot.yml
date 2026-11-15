@@ -18,3 +18,13 @@ updates:
       - "/terraform/bootstrap"
     schedule:
       interval: weekly
+    # One pull request for all Terraform updates, so modules and environments never drift apart.
+    groups:
+      terraform:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    # A major azurerm upgrade changes resources across every module and needs a planned migration, not a
+    # single-module version bump. Raise it by hand when ready.
+    ignore:
+      - dependency-name: "hashicorp/azurerm"
+        update-types: ["version-update:semver-major"]
