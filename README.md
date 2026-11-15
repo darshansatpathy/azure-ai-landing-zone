@@ -7,6 +7,9 @@
 A private, keyless place to run Azure OpenAI in a regulated organisation, written as
 Terraform, plus the policy-as-code checker that stops anyone from quietly undoing it.
 
+> Reference implementation built on synthetic or public data. It distils patterns from production
+> work into code you can run and read; it is not a client system.
+
 The design decision behind everything: **the model has no public address and no key.**
 Callers authenticate to an API Management gateway with Microsoft Entra ID, the gateway gives
 each caller a token budget, and the gateway alone talks to the model, over a private endpoint,
